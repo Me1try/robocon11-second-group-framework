@@ -2,6 +2,7 @@
 #define GDUT_MUTEX_CMSIS_RTOS2_INCLUDED
 
 #include <cmsis_os2.h>
+#include <exception>
 #include <memory>
 #include <utility>
 
@@ -13,40 +14,37 @@ struct empty_mutex_t {
 inline constexpr empty_mutex_t empty_mutex{};
 
 /**
- * @brief RAII wrapper for CMSIS-RTOS2 mutex
+ * @brief CMSIS-RTOS2 互斥锁的 RAII 包装
  *
- * This class provides a C++-style mutex wrapper around CMSIS-RTOS2 osMutex.
- * Features:
- * - Recursive mutex with priority inheritance
- * - Robust mutex (ownership tracking)
- * - Move semantics supported
+ * 该类提供了 C++ 风格的互斥锁包装，基于 CMSIS-RTOS2 osMutex。
+ * 特性：
+ * - 支持递归互斥锁和优先级继承
+ * - 支持移动语义
  *
- * Thread Safety: All methods are thread-safe.
+ * 线程安全：所有方法都是线程安全的。
  *
- * Important: The mutex creation can fail if system resources are exhausted.
- * Use the valid() method or bool operator to check if the mutex was
- * successfully created before use. If the mutex is invalid, lock operations
- * will fail silently (lock() will block forever, try_lock() returns false).
+ * 重要：互斥锁创建可能失败，原因如下：
+ * - 系统资源（FreeRTOS 堆）耗尽
+ * - osKernelInitialize() 尚未被调用
+ * 使用 valid() 方法或布尔转换检查互斥锁是否成功创建。
+ * 若互斥锁无效，lock() 会调用 std::terminate()，try_lock() 返回 false。
  */
 class mutex {
 public:
   mutex() : m_mutex_id(nullptr) {
-    osMutexAttr_t attr = {
-        "GDUT", osMutexRecursive | osMutexPrioInherit | osMutexRobust, 0, 0};
+    osMutexAttr_t attr = {"GDUT", osMutexRecursive | osMutexPrioInherit, 0, 0};
     m_mutex_id = osMutexNew(&attr);
   }
   explicit mutex(empty_mutex_t) : m_mutex_id(nullptr) {}
 
   /**
-   * @brief Construct a mutex wrapper from an existing CMSIS-RTOS2 mutex ID.
+   * @brief 从已存在的 CMSIS-RTOS2 互斥锁 ID 构造包装器。
    *
-   * This constructor takes @b ownership of @p mutex_id: the wrapper will call
-   * @c osMutexDelete on the handle when destroyed or moved-from.
-   * Do not delete or manage the mutex elsewhere after passing its handle here.
-   * Passing @c nullptr is explicitly allowed and results in an invalid mutex
-   * object, equivalent to constructing with ::gdut::empty_mutex. In this case,
-   * valid() and operator bool() will return false and lock operations will
-   * fail with error codes without causing undefined behavior.
+   * 此构造函数取得 @p mutex_id 的所有权：销毁或移动时会调用
+   * @c osMutexDelete 传递句柄后，不要在其他地方删除或管理互斥锁。
+   * 允许传递 @c nullptr 结果是一个无效的互斥锁对象，
+   * 等价于用 ::gdut::empty_mutex 构造。此时
+   * valid() 和 operator bool() 返回 false，加锁操作返回错误码。
    */
   explicit mutex(osMutexId_t mutex_id) : m_mutex_id(mutex_id) {}
 
@@ -71,40 +69,40 @@ public:
     }
   }
 
-  osStatus_t lock() {
+  void lock() {
     if (m_mutex_id == nullptr) {
-      return osError;
+      std::terminate();
     }
-    return osMutexAcquire(m_mutex_id, osWaitForever);
+    osMutexAcquire(m_mutex_id, osWaitForever);
   }
 
   bool try_lock() {
     if (m_mutex_id == nullptr) {
-      return false;
+      std::terminate();
     }
     return osMutexAcquire(m_mutex_id, 0) == osOK;
   }
 
-  osStatus_t unlock() {
+  void unlock() {
     if (m_mutex_id == nullptr) {
-      return osError;
+      std::terminate();
     }
-    return osMutexRelease(m_mutex_id);
+    osMutexRelease(m_mutex_id);
   }
 
   /**
-   * @brief Check if the mutex was successfully created
-   * @return true if the mutex is valid and can be used
+   * @brief 检查互斥锁是否成功创建
+   * @return 若互斥锁有效且可使用，返回 true
    */
   bool valid() const noexcept { return m_mutex_id != nullptr; }
 
   /**
-   * @brief Boolean conversion operator for checking validity
+   * @brief 布尔转换操作符，用于检查有效性
    *
-   * Allows usage in conditional statements like:
+   * 允许在条件语句中使用，例如：
    *   if (mutex_obj) { ... }
    *
-   * @return true if the mutex is valid
+   * @return 若互斥锁有效，返回 true
    */
   explicit operator bool() const noexcept { return valid(); }
 

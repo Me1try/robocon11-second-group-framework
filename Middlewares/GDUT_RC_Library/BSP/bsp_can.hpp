@@ -109,4 +109,4 @@ protected:
 
 } // namespace gdut
 
-#endif // BSP_CAN_HPP
+#endif // BSP_CAN_HPP 结束

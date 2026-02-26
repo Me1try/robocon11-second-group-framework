@@ -22,7 +22,12 @@ struct thread_memory_resource {
   static constexpr size_t pool_size = 4096;
   GDUT_CCMRAM inline static gdut::pmr::fixed_block_resource<pool_size>
       pool_resource{};
-  GDUT_CCMRAM inline static gdut::mutex pool_mutex{gdut::empty_mutex};
+  inline static gdut::mutex pool_mutex{gdut::empty_mutex};
+
+  static void init() {
+    static std::once_flag once;
+    std::call_once(once, []() { pool_mutex = gdut::mutex{}; });
+  }
 };
 
 struct empty_thread_t {
@@ -31,25 +36,25 @@ struct empty_thread_t {
 inline constexpr empty_thread_t empty_thread{};
 
 /**
- * @brief RAII wrapper for CMSIS-RTOS2 threads
+ * @brief CMSIS-RTOS2 线程的 RAII 包装
  *
- * This class provides a C++-style thread wrapper similar to std::thread.
- * Features:
- * - Automatic resource cleanup (RAII)
- * - Join semantics with semaphore-based synchronization
- * - Move semantics supported
+ * 该类提供了类似 std::thread 的 C++ 风格的线程包装。
+ * 特性：
+ * - 自动资源清理（RAII）
+ * - 基于信号量的同步语义
+ * - 支持移动语义
  *
- * Thread Safety:
- * - join() can be called from any thread but only once
- * - terminate() can be called from any thread but should not be called
- *   while another thread is waiting in join()
+ * 线程安全：
+ * - join() 可以从任何线程调用，但仅调用一次
+ * - terminate() 可以从任何线程调用，但不应在另一个线程
+ *   正在 join() 中等待时调用
  *
- * Usage:
+ * 使用示例：
  *   gdut::thread<512> t([]{ do_work(); });
- *   t.join();  // Wait for thread to complete
+ *   t.join();  // 等待线程完成
  *
- * @tparam StackSize Size of the thread stack in bytes
- * @tparam Priority Thread priority (default: osPriorityNormal)
+ * @tparam StackSize 线程栈的大小（字节）
+ * @tparam Priority 线程优先级（默认：osPriorityNormal）
  */
 template <size_t StackSize, osPriority_t Priority = osPriorityNormal>
 class thread {
@@ -76,6 +81,7 @@ public:
         std::is_invocable_v<Func, Args...>,
         "gdut::thread constructor requires a callable that can be invoked "
         "with the provided argument types");
+    gdut::thread_memory_resource::init();
     // 使用 unique_ptr 管理信号量资源，确保异常安全
     m_semaphore =
         std::unique_ptr<std::remove_pointer_t<osSemaphoreId_t>,
@@ -196,20 +202,6 @@ private:
     void operator()(osSemaphoreId_t sem) const {
       if (sem != nullptr) {
         osSemaphoreDelete(sem);
-      }
-    }
-  };
-
-  struct memory_deleter {
-    std::size_t block_size;
-    std::size_t alignment;
-    void operator()(void *ptr) const {
-      if (ptr != nullptr) {
-        // 这里不直接调用 osMemoryPoolFree，因为我们使用了自定义的内存资源
-        // 需要通过内存资源的 allocator 来释放
-        std::lock_guard lock(thread_memory_resource::pool_mutex);
-        thread_memory_resource::pool_resource.deallocate(ptr, block_size,
-                                                         alignment);
       }
     }
   };
