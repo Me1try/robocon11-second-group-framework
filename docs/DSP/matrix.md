@@ -73,7 +73,7 @@ vector<T, 3> cross(const vector<T, 3>& a, const vector<T, 3>& b);
 |------|------|
 | `make_scale<T>(s)` | 均匀缩放，前三个对角元素为 `s`，`[3,3]` 为 `1` |
 | `make_translate(vec)` | 平移，基于单位矩阵，`[0..2, 3]` 填入 `vec` 分量 |
-| `make_rotate(axis, angle)` | 绕轴 `axis` 旋转 `angle` 弧度（Rodrigues 公式），函数内部自动对 `axis` 归一化 |
+| `make_rotate(axis, angle, tag)` | 绕轴 `axis` 旋转 `angle` 值（Rodrigues 公式），需显式指定 `gdut::dsp::use_angle`（角度）或 `gdut::dsp::use_radian`（弧度）标签；函数内部自动对 `axis` 归一化 |
 
 变换矩阵组合遵循**右乘**规则：
 
@@ -158,7 +158,6 @@ float norm = a.norm();  // 1.0f
 ### 3D 变换
 
 ```cpp
-#include <numbers>
 using namespace gdut::dsp;
 
 // 缩放 5 倍
@@ -167,9 +166,13 @@ auto s = make_scale<float>(5.0f);
 // 平移 (1, 2, 3)
 auto t = make_translate(vector<float, 3>{1.0f, 2.0f, 3.0f});
 
-// 绕 Y 轴旋转 π/2 弧度（轴向量无需预先归一化）
-auto r = make_rotate(vector<float, 3>{0.0f, 1.0f, 0.0f},
-                     std::numbers::pi_v<float> / 2.0f);
+// 绕 Y 轴旋转 90 度（必须显式指定 use_angle）
+auto r = make_rotate(vector<float, 3>{0.0f, 1.0f, 0.0f}, 90.0f, use_angle);
+
+// 或使用弧度（指定 use_radian 标签）
+auto r2 = make_rotate(vector<float, 3>{0.0f, 1.0f, 0.0f},
+                      std::numbers::pi_v<float> / 2.0f,
+                      use_radian);
 
 // 组合变换：先缩放，再旋转，再平移
 vector<float, 4> v{1.0f, 1.0f, 1.0f, 1.0f};
@@ -201,7 +204,8 @@ auto dinv = dm.inverse();  // 调用 arm_mat_inverse_f64
 - **支持类型**：目前仅特化 `float` 和 `double`。对其他类型实例化会得到空的 `matrix<T, R, C>` 类（无任何成员）。
 - **维度检查**：矩阵乘法 `operator*` 在编译期通过 `static_assert` 检查 `A.cols == B.rows` 及两矩阵元素类型一致。
 - **内存布局**：行优先（row-major）存储，与 CMSIS-DSP 约定一致。
-- **`make_rotate` 轴向量自动归一化**：函数内部会调用 `normalized()` 对传入的 `axis` 进行归一化，因此传入任意非零方向向量均可，但传入零向量将导致除以零（结果未定义）。
+- **`make_rotate` 角度单位需显式指定**：必须传入第三个参数 `gdut::dsp::use_angle`（内部转换为弧度：$\theta_{rad}=\theta_{deg}\cdot\pi/180$）或 `gdut::dsp::use_radian`（直接使用弧度），以明确意图。
+- **`make_rotate` 轴向量自动归一化**：函数内部会调用 `normalized()` 对传入的 `axis` 进行归一化，因此传入任意非零方向向量均可。
 - **`inverse()` 精度**：`float` 精度较低，建议在精度敏感场景使用 `double` 版本。
 - **`det()` for N≥4**：使用带部分主元的 LU 分解，当主元绝对值 ≤ `epsilon` 时提前返回 `0`（奇异矩阵）。
 

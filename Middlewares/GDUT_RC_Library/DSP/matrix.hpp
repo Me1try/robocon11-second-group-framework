@@ -9,7 +9,10 @@
 #include <cstdlib>
 #include <initializer_list>
 #include <limits>
+#include <numbers>
 #include <type_traits>
+
+#include "base_math.hpp"
 
 namespace gdut::dsp {
 
@@ -17,7 +20,7 @@ template <typename T, std::size_t Rows, std::size_t Cols>
 struct redefine_matrix {};
 
 template <std::size_t Rows, std::size_t Cols,
-          template <typename T, std::size_t, std::size_t> class Matrix,
+          template <typename, std::size_t, std::size_t> class Matrix,
           typename Ty, std::size_t OtherRows, std::size_t OtherCols>
 struct redefine_matrix<Matrix<Ty, OtherRows, OtherCols>, Rows, Cols> {
   using type = Matrix<Ty, Rows, Cols>;
@@ -28,7 +31,7 @@ using redefine_matrix_t = typename redefine_matrix<Derived, Rows, Cols>::type;
 
 template <typename T> struct matrix_parameters {};
 
-template <template <typename T, std::size_t, std::size_t> class Matrix,
+template <template <typename, std::size_t, std::size_t> class Matrix,
           typename Ty, std::size_t Rows, std::size_t Cols>
 struct matrix_parameters<Matrix<Ty, Rows, Cols>> {
   using value_type = Ty;
@@ -108,10 +111,26 @@ public:
       const value_type h = get_value(2, 1);
       const value_type i = get_value(2, 2);
       return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    } else if constexpr (Rows == 4) {
+      const value_type *m = get();
+      value_type det = 0;
+      det += m[0] * (m[5] * m[10] * m[15] + m[6] * m[11] * m[13] +
+                     m[7] * m[9] * m[14] - m[5] * m[11] * m[14] -
+                     m[6] * m[9] * m[15] - m[7] * m[10] * m[13]);
+      det -= m[1] * (m[4] * m[10] * m[15] + m[6] * m[11] * m[12] +
+                     m[7] * m[8] * m[14] - m[4] * m[11] * m[14] -
+                     m[6] * m[8] * m[15] - m[7] * m[10] * m[12]);
+      det += m[2] *
+             (m[4] * m[9] * m[15] + m[5] * m[11] * m[12] + m[7] * m[8] * m[13] -
+              m[4] * m[11] * m[13] - m[5] * m[8] * m[15] - m[7] * m[9] * m[12]);
+      det -= m[3] *
+             (m[4] * m[9] * m[14] + m[5] * m[10] * m[12] + m[6] * m[8] * m[13] -
+              m[4] * m[10] * m[13] - m[5] * m[8] * m[14] - m[6] * m[9] * m[12]);
+      return det;
     } else {
       constexpr std::size_t N = Rows;
       value_type lu[N * N];
-      int sign = 1;
+      value_type sign = static_cast<value_type>(1);
       std::copy_n(get(), N * N, lu);
 
       for (std::size_t k = 0; k < N; ++k) {
@@ -521,7 +540,7 @@ inline constexpr matrix<T, 4, 4> make_scale(std::type_identity_t<T> scale) {
   for (std::size_t i = 0; i < 3; ++i) {
     res[i, i] = scale;
   }
-  res[3, 3] = 1;
+  res[3, 3] = static_cast<T>(1);
   return res;
 }
 
@@ -531,18 +550,26 @@ inline constexpr matrix<T, 4, 4> make_translate(const vector<T, 3> &vec) {
   res[0, 3] = vec[0];
   res[1, 3] = vec[1];
   res[2, 3] = vec[2];
-  res[3, 3] = 1;
+  res[3, 3] = static_cast<T>(1);
   return res;
 }
 
-template <typename T>
-inline constexpr matrix<T, 4, 4> make_rotate(const vector<T, 3> &vec,
-                                             std::type_identity_t<T> angle) {
+template <typename T, typename UseType,
+          typename = std::enable_if_t<is_use_angle_type_v<UseType>>>
+inline constexpr matrix<T, 4, 4>
+make_rotate(const vector<T, 3> &axis, std::type_identity_t<T> angle, UseType) {
   matrix<T, 4, 4> res;
-  vector<T, 3> temp = vec.normalized();
-  T c = std::cos(angle);
-  T s = std::sin(angle);
-  T osc = 1 - c;
+  vector<T, 3> temp = axis.normalized();
+  T c{};
+  T s{};
+  if constexpr (std::is_same_v<use_angle_t, UseType>) {
+    c = cos(angle * std::numbers::pi_v<T> / static_cast<T>(180));
+    s = sin(angle * std::numbers::pi_v<T> / static_cast<T>(180));
+  } else {
+    c = cos(angle);
+    s = sin(angle);
+  }
+  T osc = static_cast<T>(1) - c;
   res[0, 0] = c + temp[0] * temp[0] * osc;
   res[0, 1] = temp[0] * temp[1] * osc - temp[2] * s;
   res[0, 2] = temp[0] * temp[2] * osc + temp[1] * s;
@@ -552,7 +579,7 @@ inline constexpr matrix<T, 4, 4> make_rotate(const vector<T, 3> &vec,
   res[2, 0] = temp[2] * temp[0] * osc - temp[1] * s;
   res[2, 1] = temp[2] * temp[1] * osc + temp[0] * s;
   res[2, 2] = c + temp[2] * temp[2] * osc;
-  res[3, 3] = 1;
+  res[3, 3] = static_cast<T>(1);
   return res;
 }
 
