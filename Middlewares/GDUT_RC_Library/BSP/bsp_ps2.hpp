@@ -12,7 +12,7 @@ namespace gdut {
 class spi_proxy; // forward declare optional SPI proxy
 
 /**
- * @brief PS/2（用于 PS2 手柄）状态表示
+ * @brief PPS2手柄状态表示
  */
 struct ps2_state {
   uint16_t buttons{0};
