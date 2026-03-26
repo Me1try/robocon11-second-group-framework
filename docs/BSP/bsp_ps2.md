@@ -46,18 +46,28 @@ spi.set_baud_rate_prescaler(gdut::spi_baud_rate_prescaler::div64);
 spi.init();
 ```
 
-2. 定义 `pins_interface` 并绑定 `ATT` 对应的 `gdut::gpio_pin`：
+2. 定义 `pins_interface` 并绑定 `ATT` 对应的 GPIO（使用仓库新的 `gpio_proxy` API）：
 
 ```cpp
-using AttPin = gdut::gpio_pin<gdut::gpio_port::A,
-    GPIO_InitTypeDef{.Pin = GPIO_PIN_4,
-                     .Mode = GPIO_MODE_OUTPUT_PP,
-                     .Pull = GPIO_NOPULL,
-                     .Speed = GPIO_SPEED_FREQ_LOW}>;
-AttPin att;
+GPIO_InitTypeDef att_init{};
+att_init.Pin = GPIO_PIN_4;
+att_init.Mode = GPIO_MODE_OUTPUT_PP;
+att_init.Pull = GPIO_NOPULL;
+att_init.Speed = GPIO_SPEED_FREQ_LOW;
+
+gdut::gpio_proxy att(gdut::get_gpio_port_ptr(gdut::gpio_port::A), &att_init);
+att.initialize();
+
 ps2_controller::pins_interface pins;
 pins.set_att = [&att](bool v){ att.write(v); };
-pins.delay_us = [](uint32_t us){ /* 微秒延时实现 */ };
+pins.delay_us = [](uint32_t us){
+  using namespace gdut;
+  if (us == 0) return;
+  auto start = steady_clock::now();
+  auto target = start + steady_clock::duration(us);
+  if (us >= 2000) std::this_thread::sleep_for(std::chrono::microseconds(us - 1000));
+  while (steady_clock::now() < target) { }
+};
 ```
 
 3. 构造并使用 `ps2_controller`：
@@ -85,25 +95,3 @@ while(true){
   - `CMD` 与 `DAT` 通常为开漏信号，需外部 10k 上拉到 3.3V。不要同时驱动为高电平。
 
 - 时序问题：优先使用硬件 SPI，若必须使用 bit‑bang（当前驱动不支持），确保在低中断干扰或实时任务中运行以减少抖动。
-
-## 示例与测试
-
-- 仓库已包含示例与测试目标：`ps2_test`（模拟） 和 `ps2_hw_example`（硬件示例）。
-
-构建示例（在交叉编译环境下）：
-
-```bash
-mkdir -p build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=... ..
-cmake --build . --target ps2_hw_example
-```
-
-## 参考实现
-
-- 源码： [BSP/bsp_ps2.hpp](BSP/bsp_ps2.hpp), [BSP/bsp_ps2.cpp](BSP/bsp_ps2.cpp)
-- 相关模块： [BSP/bsp_spi.hpp](BSP/bsp_spi.hpp), [BSP/bsp_gpio_pin.hpp](BSP/bsp_gpio_pin.hpp)
-
-## 维护备注
-
-- 文档基于仓库实现时间：2026-03-25。当前驱动强制使用硬件 SPI。如需恢复软件 bit‑bang，请在 `exchange_byte()` 中添加帧时序实现并处理奇偶校验、超时与重试逻辑。
-
